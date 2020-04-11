@@ -1,0 +1,63 @@
+---
+version: '3.5'
+
+x-logging: &default-logging
+  options:
+    max-size: '100m'
+    max-file: '1'
+  driver: json-file
+
+networks:
+  catenae:
+    name: catenae
+
+services:
+
+  kafka:
+    image: catenae/kafka
+    volumes:
+      - ./kafka-data/data:/opt/kafka/default/logs
+      - ./kafka-data/logs/kafka:/tmp/kafka-logs
+      - ./kafka-data/logs/zookeeper:/tmp/zookeeper
+    ulimits:
+      nofile: 90000
+    restart: always
+    logging: *default-logging
+    networks:
+      - catenae
+
+  proxy_balancer:
+    image: registry.catenae.dev/proxy-balancer
+    restart: always
+    logging: *default-logging
+    networks:
+      - catenae
+
+  instagram_scraper:
+    build: 
+      context: ../
+      dockerfile: Dockerfile
+    environment:
+      - HTTP_PROXY='http://proxy_balancer:8888'
+    command: instagram_scraper.py -k kafka:9092 "eminem" "cristiano"
+    restart: always
+    logging: *default-logging
+    depends_on:
+      - kafka
+    networks:
+      - catenae
+  
+  rocksdb:
+    container_name: rocksdb
+    build: 
+      context: ./rocks/
+      dockerfile: Dockerfile
+    command: store_rocks.py -r rocksdb -k kafka:9092 -i posts,comments
+    volumes: 
+      - ./rocksdb:/opt/catenae/rocksdb
+    restart: always
+    logging: *default-logging
+    depends_on:
+      - kafka
+    networks:
+      - catenae
